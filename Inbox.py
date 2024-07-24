@@ -2,6 +2,7 @@ import os
 import imaplib
 import email
 import hashlib
+import time
 
 
 class Inbox:
@@ -75,3 +76,34 @@ class Inbox:
                         subject = "No_Subject"
                     filename = f"{email_id.decode()}_{hashlib.md5(subject.encode()).hexdigest()}.eml"
                     self.save_email(msg, mailbox, filename)
+
+    def upload(self, imap):
+        try:
+            self.get_connection(imap)
+            for root, dirs, files in os.walk(self.email_folder):
+                mailbox = os.path.relpath(root, self.email_folder).replace('_', '/')
+                if mailbox == '.':
+                    mailbox = 'INBOX'
+                mailbox = self.sanitize_mailbox_name(mailbox)
+                try:
+                    status, response = self.connection.create(mailbox)
+                    if status != 'OK':
+                        print(f"Error creating mailbox {mailbox}: {response}. Storing emails in INBOX instead.")
+                        mailbox = 'INBOX'
+                except imaplib.IMAP4.error as e:
+                    print(f"Error creating mailbox {mailbox}: {e}. Storing emails in INBOX instead.")
+                    mailbox = 'INBOX'
+
+                for file in files:
+                    with open(os.path.join(root, file), 'r') as f:
+                        msg = email.message_from_file(f)
+                        self.connection.append(mailbox, '', imaplib.Time2Internaldate(time.time()), msg.as_bytes())
+        finally:
+            if self.connection:
+                self.connection.logout()
+
+    def sanitize_mailbox_name(self, mailbox):
+        invalid_chars = ['\\', '/', ' ', '#', '%', '&', '*', '{', '}', '[', ']', '(', ')', '"', '\'']
+        for char in invalid_chars:
+            mailbox = mailbox.replace(char, '_')
+        return mailbox
